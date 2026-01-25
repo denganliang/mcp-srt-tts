@@ -23,6 +23,13 @@ It features **Auto-Flow technology** to intelligently handle timeline overlaps a
 - **Auto-Trim**: Automatically removes trailing silence from the generated audio.
 - **Reference Audio**: Supports voice cloning by uploading a reference audio file (timbre) to the TTS server.
 
+### 🔌 TTS Backend Requirement
+
+This tool relies on **Index TTS** for speech synthesis.
+Please deploy it yourself: [https://github.com/index-tts/index-tts](https://github.com/index-tts/index-tts)
+
+You will need to provide your deployed TTS server URL as a parameter.
+
 ### 📦 Installation
 
 #### 1. Clone the repository
@@ -83,6 +90,13 @@ python main.py <TTS_URL> <SRT_FILE> <REF_AUDIO> [-o output.wav]
 - **平滑过渡处理**：对每一段语音的首尾应用 **50ms 淡入淡出（Fade Envelope）**，消除拼接处的爆音和生硬感。
 - **自动裁剪**：生成完成后，自动检测并移除末尾多余的静音空白。
 - **参考音频支持**：支持上传本地参考音频文件，用于 TTS 的音色克隆。
+
+### 🔌 TTS 后端要求
+
+本工具使用 **Index TTS** 作为语音合成后端。
+请自行部署服务：[https://github.com/index-tts/index-tts](https://github.com/index-tts/index-tts)
+
+使用时需将部署好的 TTS 服务地址作为参数传入。
 
 ### 📦 安装步骤
 
