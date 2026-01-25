@@ -26,7 +26,7 @@ class TTSEngine:
             payload["emo_text"] = emo_text
 
         try:
-            resp = requests.post(url, json=payload, timeout=60)
+            resp = requests.post(url, json=payload, timeout=300)
             if resp.status_code != 200:
                 print(f"Server Error ({resp.status_code}): {resp.text}")
                 return None
