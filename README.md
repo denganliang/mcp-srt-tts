@@ -27,7 +27,7 @@ It features **Auto-Flow technology** to intelligently handle timeline overlaps a
 
 #### 1. Clone the repository
 ```bash
-git clone https://github.com/<your-username>/mcp-srt-tts.git
+git clone https://github.com/denganliang/mcp-srt-tts.git
 cd mcp-srt-tts
 ```
 
@@ -88,7 +88,7 @@ python main.py <TTS_URL> <SRT_FILE> <REF_AUDIO> [-o output.wav]
 
 #### 1. 克隆仓库
 ```bash
-git clone https://github.com/<your-username>/mcp-srt-tts.git
+git clone https://github.com/denganliang/mcp-srt-tts.git
 cd mcp-srt-tts
 ```
 
