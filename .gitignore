@@ -36,3 +36,7 @@ ENV/
 *.mp3
 output/
 logs/
+
+.claude
+
+*.srt

@@ -21,6 +21,7 @@ It features **Auto-Flow technology** to intelligently handle timeline overlaps a
 - **Auto-Flow Timing**: Automatically detects if a spoken sentence is longer than its subtitle slot and **shifts the timeline** to prevent overlap/chaos while maintaining sequential integrity.
 - **Smooth Transitions**: Applies **50ms fade-in/out envelopes** to every segment to eliminate clicks, pops, and hard cuts.
 - **Auto-Trim**: Automatically removes trailing silence from the generated audio.
+- **Synchronized SRT**: Generates a new `.srt` file that perfectly matches the timing of the generated audio. Since `Auto-Flow` may shift audio segments to prevent overlaps, the original subtitles might become desynchronized. This new file ensures your subtitles stay in sync with the new audio track. The file is named identically to the output audio (e.g., if output is `speech.wav`, the subtitle will be `speech.srt`).
 - **Reference Audio**: Supports voice cloning by uploading a reference audio file (timbre) to the TTS server.
 
 ### 🔌 TTS Backend Requirement
@@ -68,7 +69,7 @@ Claude will:
 2. Upload the reference audio.
 3. Synthesize speech for each line.
 4. **Auto-adjust timing** to prevent overlaps.
-5. Generate the final `output.wav`.
+5. Generate the final `output.wav` and synchronized `output.srt`.
 
 ### 🛠 Standalone Usage (CLI)
 
@@ -89,6 +90,7 @@ python main.py <TTS_URL> <SRT_FILE> <REF_AUDIO> [-o output.wav]
 - **Auto-Flow 自动顺延**：脚本会自动检测生成的语音长度。如果语音比字幕时间长，程序会自动**顺延下一句的开始时间**，彻底解决语音重叠（Overlap）和嘈杂混乱的问题，保证每一句话都清晰完整。
 - **平滑过渡处理**：对每一段语音的首尾应用 **50ms 淡入淡出（Fade Envelope）**，消除拼接处的爆音和生硬感。
 - **自动裁剪**：生成完成后，自动检测并移除末尾多余的静音空白。
+- **同步字幕生成**：会自动生成一个与新语音时间轴完全对应的新 `.srt` 文件。由于 `Auto-Flow` 可能会平移语音片段以避免重叠，原字幕的时间轴可能会失效。程序会根据最终生成的音频时间，输出一个新的字幕文件，文件名与输出音频保持一致（例如输出 `speech.wav`，则生成 `speech.srt`）。
 - **参考音频支持**：支持上传本地参考音频文件，用于 TTS 的音色克隆。
 
 ### 🔌 TTS 后端要求
@@ -136,7 +138,7 @@ Claude 会自动完成以下工作：
 2. 上传参考音频。
 3. 逐行合成语音。
 4. **自动调整时间轴**以防止语音重叠。
-5. 输出最终的 `output.wav` 文件。
+5. 输出最终的 `output.wav` 文件和同步的 `output.srt` 字幕。
 
 ### 🛠 独立运行 (CLI 模式)
 

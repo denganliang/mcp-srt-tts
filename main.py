@@ -72,6 +72,23 @@ def parse_time(time_str):
     except ValueError:
         return 0.0
 
+def format_time(seconds):
+    """Converts seconds (float) to SRT time string (00:00:00,000)"""
+    millis = int((seconds % 1) * 1000)
+    seconds = int(seconds)
+    hours = seconds // 3600
+    minutes = (seconds % 3600) // 60
+    seconds = seconds % 60
+    return f"{hours:02}:{minutes:02}:{seconds:02},{millis:03}"
+
+def save_srt(segments, path):
+    """Writes segments to an SRT file"""
+    with open(path, 'w', encoding='utf-8') as f:
+        for i, seg in enumerate(segments):
+            f.write(f"{i+1}\n")
+            f.write(f"{format_time(seg['start'])} --> {format_time(seg['end'])}\n")
+            f.write(f"{seg['text']}\n\n")
+
 def parse_srt(srt_path):
     if not os.path.exists(srt_path):
         print(f"Error: SRT file not found: {srt_path}")
@@ -169,6 +186,7 @@ def srt_to_audio(base_url, srt_file, ref_audio, output_file="output.wav"):
 
     success_count = 0
     next_available_sample = 0
+    generated_segments = []
 
     for i, seg in enumerate(segments):
         text = seg['text']
@@ -238,6 +256,16 @@ def srt_to_audio(base_url, srt_file, ref_audio, output_file="output.wav"):
             start_sample = next_available_sample
 
         end_sample = start_sample + len(data)
+
+        # Record actual timing for new SRT
+        real_start_time = start_sample / sample_rate
+        real_end_time = end_sample / sample_rate
+        generated_segments.append({
+            'start': real_start_time,
+            'end': real_end_time,
+            'text': text
+        })
+
         next_available_sample = end_sample
 
         # Handle overflow (extend buffer)
@@ -272,6 +300,12 @@ def srt_to_audio(base_url, srt_file, ref_audio, output_file="output.wav"):
             final_audio = final_audio / max_val
 
         sf.write(output_file, final_audio, sample_rate)
+
+        # Save synchronized SRT
+        output_srt = os.path.splitext(output_file)[0] + ".srt"
+        print(f"Saving synchronized SRT to {output_srt}...")
+        save_srt(generated_segments, output_srt)
+
         print("Success!")
     else:
         print("No audio generated.")
