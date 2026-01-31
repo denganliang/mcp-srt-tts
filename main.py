@@ -11,7 +11,7 @@ import soundfile as sf
 import numpy as np
 from typing import Optional, List
 
-# --- TTSEngine Class ---
+# --- TTSEngine Class (保持不变) ---
 class TTSEngine:
     def __init__(self, base_url: str):
         self.base_url = base_url.rstrip("/")
@@ -48,23 +48,18 @@ class TTSEngine:
     def upload_audio(self, file_path: str, full_path=None) -> dict:
         if not os.path.isfile(file_path):
             raise FileNotFoundError(f"File not found: {file_path}")
-
         url = f"{self.base_url}/v1/upload_audio"
         with open(file_path, "rb") as f:
-            # Prepare files/data
-            # Note: The server expects 'full_path' in data if identifying by path
             files = {"audio": (os.path.basename(file_path), f, "audio/wav")}
             data = {}
             if full_path:
                 data["full_path"] = full_path
-
             resp = requests.post(url, files=files, data=data, timeout=30)
             resp.raise_for_status()
             return resp.json()
 
-# --- SRT Parsing ---
+# --- SRT Parsing & Utils (保持不变) ---
 def parse_time(time_str):
-    """Converts SRT time string (00:00:00,000) to seconds (float)"""
     try:
         h, m, s = time_str.split(':')
         s, ms = s.split(',')
@@ -73,7 +68,6 @@ def parse_time(time_str):
         return 0.0
 
 def format_time(seconds):
-    """Converts seconds (float) to SRT time string (00:00:00,000)"""
     millis = int((seconds % 1) * 1000)
     seconds = int(seconds)
     hours = seconds // 3600
@@ -82,7 +76,6 @@ def format_time(seconds):
     return f"{hours:02}:{minutes:02}:{seconds:02},{millis:03}"
 
 def save_srt(segments, path):
-    """Writes segments to an SRT file"""
     with open(path, 'w', encoding='utf-8') as f:
         for i, seg in enumerate(segments):
             f.write(f"{i+1}\n")
@@ -93,230 +86,141 @@ def parse_srt(srt_path):
     if not os.path.exists(srt_path):
         print(f"Error: SRT file not found: {srt_path}")
         return []
-
     with open(srt_path, 'r', encoding='utf-8') as f:
         content = f.read()
-
-    # Split by double newlines (standard SRT block separator)
-    # Handle both \n\n and \r\n\r\n
     blocks = re.split(r'\n\s*\n', content.strip())
     segments = []
-
     for block in blocks:
         lines = [l.strip() for l in block.split('\n') if l.strip()]
-        if len(lines) < 2:
-            continue
-
-        # Try to find the timestamp line (contains -->)
+        if len(lines) < 2: continue
         time_line_idx = -1
         for i, line in enumerate(lines):
             if '-->' in line:
                 time_line_idx = i
                 break
-
-        if time_line_idx == -1:
-            continue
-
+        if time_line_idx == -1: continue
         time_line = lines[time_line_idx]
         text_lines = lines[time_line_idx+1:]
         text = " ".join(text_lines).strip()
-
         try:
             start_str, end_str = time_line.split(' --> ')
-            start_time = parse_time(start_str.strip())
-            end_time = parse_time(end_str.strip())
-        except ValueError:
-            print(f"Skipping malformed time line: {time_line}")
-            continue
-
-        segments.append({
-            'start': start_time,
-            'end': end_time,
-            'text': text
-        })
+            segments.append({'start': parse_time(start_str), 'end': parse_time(end_str), 'text': text})
+        except: continue
     return segments
 
 # --- Main Logic ---
 def srt_to_audio(base_url, srt_file, ref_audio, output_file="output.wav"):
     print("="*50)
-    print(f"SRT to Audio Converter")
-    print(f"Server: {base_url}")
-    print(f"SRT:    {srt_file}")
-    print(f"Ref:    {ref_audio}")
+    print(f"SRT to Audio (Compact Mode)")
     print("="*50)
 
     engine = TTSEngine(base_url)
-
-    # 1. Upload Reference Audio
     ref_audio_abs = os.path.abspath(ref_audio)
 
-    # Check if reference audio exists locally
     if not os.path.exists(ref_audio_abs):
-        print(f"Error: Reference audio file not found locally: {ref_audio_abs}")
+        print(f"Error: Ref audio not found: {ref_audio_abs}")
         sys.exit(1)
 
-    print(f"Checking/Uploading reference audio...")
+    # 1. 确保服务器有参考音频
     try:
-        # Always try to upload/check to ensure server has it
-        # We use the absolute path as the key/filename on server side as per original logic
         if not engine.check_audio_exists(ref_audio_abs):
-            print("  -> Uploading...")
             engine.upload_audio(ref_audio_abs, full_path=ref_audio_abs)
-        else:
-            print("  -> Exists on server.")
     except Exception as e:
-        print(f"Warning: Issue verifying reference audio on server: {e}")
-        print("Attempting to proceed anyway...")
+        print(f"Warning: Upload issue: {e}")
 
-    # 2. Parse SRT
-    print(f"Parsing SRT file...")
+    # 2. 解析 SRT
     segments = parse_srt(srt_file)
     if not segments:
-        print("No valid segments found in SRT.")
+        print("No segments found.")
         sys.exit(1)
 
-    # Calculate total duration needed
-    last_end_time = max(s['end'] for s in segments)
-    total_duration = last_end_time + 1.0
-    print(f"Found {len(segments)} segments. Total timeline: {total_duration:.2f}s")
-
-    # 3. Process segments
-    final_audio = None
+    # 3. 处理段落
+    final_audio_list = []  # 改用列表存储，最后一次性合并，更高效且不限制长度
     sample_rate = 0
-
-    success_count = 0
-    next_available_sample = 0
     generated_segments = []
+    current_time_cursor = 0.0
+    
+    # 段落之间的硬性静音间隔（秒），方案A建议设为 0.1 ~ 0.3 使其自然
+    gap_duration = 0.2 
 
     for i, seg in enumerate(segments):
         text = seg['text']
-        start_time = seg['start']
-        end_time = seg['end']
-
-        # Clean text
         clean_text = re.sub(r'<[^>]+>', '', text).strip()
-        if not clean_text:
-            continue
+        if not clean_text: continue
 
-        print(f"[{i+1}/{len(segments)}] {start_time:.2f}s -> {clean_text[:40]}...")
-
-        # Call TTS
+        print(f"[{i+1}/{len(segments)}] Synthesizing: {clean_text[:30]}...")
         audio_bytes = engine.synthesize(clean_text, ref_audio_abs)
 
         if not audio_bytes:
-            print("  -> Failed to synthesize, skipping.")
+            print("  -> Failed, skipping.")
             continue
 
-        # Convert bytes to numpy array
         try:
             with io.BytesIO(audio_bytes) as bio:
                 data, sr = sf.read(bio)
+                data = data.astype(np.float32)
         except Exception as e:
-            print(f"  -> Error reading audio data: {e}")
+            print(f"  -> Audio read error: {e}")
             continue
 
-        # Apply fade in/out to avoid clicks and stiff transitions
-        fade_duration = 0.05 # 50ms
-        fade_samples = int(fade_duration * sr)
-        if fade_samples > 0 and fade_samples * 2 < len(data):
-            fade_curve = np.linspace(0, 1, fade_samples, dtype=np.float32)
-            if len(data.shape) > 1:
-                fade_curve = fade_curve[:, np.newaxis]
-
-            # Fade In
-            data[:fade_samples] = data[:fade_samples] * fade_curve
-            # Fade Out
-            data[-fade_samples:] = data[-fade_samples:] * fade_curve[::-1]
-
-        # Initialize final buffer if first time
-        if final_audio is None:
+        if sample_rate == 0:
             sample_rate = sr
-            total_samples = int(total_duration * sample_rate)
-            # Check channels
-            channels = 1
-            if len(data.shape) > 1:
-                channels = data.shape[1]
-                final_audio = np.zeros((total_samples, channels), dtype=np.float32)
-            else:
-                final_audio = np.zeros(total_samples, dtype=np.float32)
-            print(f"  -> Initialized audio buffer: {sample_rate}Hz, {channels}ch")
-
-        # Handle sample rate mismatch
-        if sr != sample_rate:
-            print(f"  -> Warning: Sample rate mismatch ({sr} vs {sample_rate}). Skipping.")
+        elif sr != sample_rate:
+            print(f"  -> SR mismatch ({sr} vs {sample_rate}), skipping.")
             continue
 
-        # Calculate insertion point
-        start_sample = int(start_time * sample_rate)
+        # 应用淡入淡出 (防止切片边缘咔哒声)
+        fade_samples = int(0.05 * sample_rate)
+        if len(data) > fade_samples * 2:
+            fade_curve = np.linspace(0, 1, fade_samples, dtype=np.float32)
+            if len(data.shape) > 1: fade_curve = fade_curve[:, np.newaxis]
+            data[:fade_samples] *= fade_curve
+            data[-fade_samples:] *= fade_curve[::-1]
 
-        # Auto-shift to avoid overlap
-        if start_sample < next_available_sample:
-            shift_sec = (next_available_sample - start_sample) / sample_rate
-            print(f"  -> Adjusting timing: +{shift_sec:.2f}s to avoid overlap")
-            start_sample = next_available_sample
-
-        end_sample = start_sample + len(data)
-
-        # Record actual timing for new SRT
-        real_start_time = start_sample / sample_rate
-        real_end_time = end_sample / sample_rate
+        # 记录新 SRT 的时间戳（紧凑模式）
+        duration = len(data) / sample_rate
         generated_segments.append({
-            'start': real_start_time,
-            'end': real_end_time,
+            'start': current_time_cursor,
+            'end': current_time_cursor + duration,
             'text': text
         })
 
-        next_available_sample = end_sample
+        # 添加到最终列表并更新游标
+        final_audio_list.append(data)
+        
+        # 添加一小段静音 Gap
+        gap_samples = int(gap_duration * sample_rate)
+        if gap_samples > 0:
+            shape = (gap_samples, data.shape[1]) if len(data.shape) > 1 else (gap_samples,)
+            final_audio_list.append(np.zeros(shape, dtype=np.float32))
+            current_time_cursor += gap_duration
 
-        # Handle overflow (extend buffer)
-        if end_sample > len(final_audio):
-             new_len = int(end_sample + sample_rate * 10)
-             if len(final_audio.shape) > 1:
-                new_arr = np.zeros((new_len, final_audio.shape[1]), dtype=np.float32)
-             else:
-                new_arr = np.zeros(new_len, dtype=np.float32)
-             new_arr[:len(final_audio)] = final_audio
-             final_audio = new_arr
+        current_time_cursor += duration
 
-        # Add audio to buffer
-        if len(final_audio.shape) > 1 and len(data.shape) == 1:
-             data = np.column_stack((data, data))
+    # 4. 合并并保存
+    if final_audio_list:
+        print(f"\nConcatenating {len(final_audio_list)} buffers...")
+        combined_audio = np.concatenate(final_audio_list, axis=0)
 
-        final_audio[start_sample:end_sample] += data
-        success_count += 1
-
-    # 4. Save Output
-    if final_audio is not None and success_count > 0:
-        print(f"\nSaving result to {output_file}...")
-
-        # Trim unused buffer (silence at the end)
-        if next_available_sample > 0 and next_available_sample < len(final_audio):
-             final_audio = final_audio[:next_available_sample]
-
-        # Normalize to prevent clipping from mixing
-        max_val = np.max(np.abs(final_audio))
+        # 归一化
+        max_val = np.max(np.abs(combined_audio))
         if max_val > 1.0:
-            print(f"  -> Normalizing volume (peak {max_val:.2f})...")
-            final_audio = final_audio / max_val
+            combined_audio /= max_val
 
-        sf.write(output_file, final_audio, sample_rate)
-
-        # Save synchronized SRT
+        sf.write(output_file, combined_audio, sample_rate)
+        
         output_srt = os.path.splitext(output_file)[0] + ".srt"
-        print(f"Saving synchronized SRT to {output_srt}...")
         save_srt(generated_segments, output_srt)
-
-        print("Success!")
+        print(f"Success! Output: {output_file} and {output_srt}")
     else:
-        print("No audio generated.")
+        print("No audio was generated.")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Convert SRT subtitles to Audio using Remote TTS")
-    parser.add_argument("url", help="HTTP Service URL (e.g. http://127.0.0.1:8000)")
-    parser.add_argument("srt", help="Path to SRT subtitle file")
-    parser.add_argument("ref_audio", help="Path to reference audio file (timbre)")
-    parser.add_argument("-o", "--output", default="output.wav", help="Output file path (default: output.wav)")
-
+    parser = argparse.ArgumentParser(description="Convert SRT to Compact Audio")
+    parser.add_argument("url", help="Server URL")
+    parser.add_argument("srt", help="SRT file")
+    parser.add_argument("ref_audio", help="Reference audio")
+    parser.add_argument("-o", "--output", default="output.wav", help="Output path")
     args = parser.parse_args()
 
     srt_to_audio(args.url, args.srt, args.ref_audio, args.output)
